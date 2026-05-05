@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 
+import torch
+
 
 @dataclass(slots=True)
 class SearchConfig:
     dataset_id: int = 222
     random_seed: int = 42
+    split_seed: int = 42
     log_file: str | None = None
     quant_mode: str = "mixed"
     batch_size: int = 32
@@ -25,7 +28,7 @@ class SearchConfig:
     train_ratio: float = 0.6
     val_ratio: float = 0.2
     test_ratio: float = 0.2
-    device: str = "cpu"
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
     accuracy_weight: float = 0.8
     efficiency_weight: float = 0.2
     model_size_penalty_weight: float = 0.6
@@ -45,6 +48,10 @@ class SearchConfig:
             raise ValueError("max_hidden_layers must be at least 1")
         if self.quant_mode not in {"fp32", "mixed", "binary"}:
             raise ValueError("quant_mode must be one of: 'fp32', 'mixed', 'binary'")
+        if self.device not in {"cpu", "cuda"}:
+            raise ValueError("device must be one of: 'cpu', 'cuda'")
+        if self.device == "cuda" and not torch.cuda.is_available():
+            raise ValueError("device='cuda' requested, but CUDA is not available in this PyTorch install")
 
 
 def override_config(config: SearchConfig, args: dict) -> SearchConfig:

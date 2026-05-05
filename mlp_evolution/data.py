@@ -55,7 +55,7 @@ def load_dataset(config: SearchConfig) -> DatasetBundle:
         x,
         y,
         test_size=config.test_ratio,
-        random_state=config.random_seed,
+        random_state=config.split_seed,
         stratify=y,
     )
 
@@ -64,7 +64,7 @@ def load_dataset(config: SearchConfig) -> DatasetBundle:
         x_train_val,
         y_train_val,
         test_size=relative_val_ratio,
-        random_state=config.random_seed,
+        random_state=config.split_seed,
         stratify=y_train_val,
     )
 

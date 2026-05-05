@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from mlp_evolution.config import SearchConfig, override_config
 from mlp_evolution.data import load_dataset
-from mlp_evolution.fitness import EvaluatedIndividual, evaluate_genotype
+from mlp_evolution.fitness import EvaluatedIndividual, evaluate_final_genotype, evaluate_genotype
 from mlp_evolution.genotype import Genotype, clone_genotype, crossover, random_genotype
 
 
@@ -37,7 +37,7 @@ def evolve(config: SearchConfig) -> tuple[EvaluatedIndividual, list[EvaluatedInd
     population = [random_genotype(config, rng) for _ in range(config.population_size)]
     history: list[EvaluatedIndividual] = []
     best_overall: EvaluatedIndividual | None = None
-    total_steps = (config.generations * config.population_size) + 3
+    total_steps = (config.generations * config.population_size) + 1
 
     with tqdm(
         total=total_steps,
@@ -105,12 +105,17 @@ def evolve(config: SearchConfig) -> tuple[EvaluatedIndividual, list[EvaluatedInd
             population = next_population
 
         assert best_overall is not None
-        compare_extremes(best_overall.genotype, dataset, config, progress_bar)
-    return best_overall, history
+        final_best = evaluate_final_best(best_overall.genotype, dataset, config, progress_bar)
+    return final_best, history
 
 
-def compare_extremes(best_genotype: Genotype, dataset, config: SearchConfig, progress_bar: tqdm) -> None:
-    best_result = evaluate_genotype(
+def evaluate_final_best(
+    best_genotype: Genotype,
+    dataset,
+    config: SearchConfig,
+    progress_bar: tqdm,
+) -> EvaluatedIndividual:
+    best_result = evaluate_final_genotype(
         best_genotype,
         dataset,
         config,
@@ -118,42 +123,14 @@ def compare_extremes(best_genotype: Genotype, dataset, config: SearchConfig, pro
     )
     progress_bar.set_postfix_str("final=best evolved")
     progress_bar.update(1)
-    binary_result = evaluate_genotype(
-        best_genotype,
-        dataset,
-        config,
-        hidden_quantization_override=["binary"] * best_genotype.num_hidden_layers,
-    )
-    progress_bar.set_postfix_str("final=binary")
-    progress_bar.update(1)
-    ternary_result = evaluate_genotype(
-        best_genotype,
-        dataset,
-        config,
-        hidden_quantization_override=["ternary"] * best_genotype.num_hidden_layers,
-    )
-    progress_bar.set_postfix_str("final=ternary")
-    progress_bar.update(1)
-
-    _progress_write(progress_bar, "\nComparison against extreme quantization baselines")
+    _progress_write(progress_bar, "\nFinal best evolved model")
     _progress_write(
         progress_bar,
         f"Best evolved : test_acc={best_result.test_accuracy:.4f}, "
         f"model_bits={best_result.estimated_model_bits}, "
         f"compute_cost={best_result.estimated_compute_cost}",
     )
-    _progress_write(
-        progress_bar,
-        f"Binary       : test_acc={binary_result.test_accuracy:.4f}, "
-        f"model_bits={binary_result.estimated_model_bits}, "
-        f"compute_cost={binary_result.estimated_compute_cost}",
-    )
-    _progress_write(
-        progress_bar,
-        f"Ternary      : test_acc={ternary_result.test_accuracy:.4f}, "
-        f"model_bits={ternary_result.estimated_model_bits}, "
-        f"compute_cost={ternary_result.estimated_compute_cost}",
-    )
+    return best_result
 
 
 def _print_generation_summary(
@@ -172,7 +149,6 @@ def _print_generation_summary(
         f"Generation {generation + 1}/{config.generations} | "
         f"best_fitness={best.fitness:.4f} | "
         f"val_acc={best.val_accuracy:.4f} | "
-        f"test_acc={best.test_accuracy:.4f} | "
         f"mean_fitness={mean_fitness:.4f}",
     )
     _progress_write(
@@ -217,7 +193,7 @@ def _append_generation_log(
     line = (
         f"generation: {generation + 1} "
         f"time: {elapsed_seconds:.1f}s "
-        f"accuracy: {best.val_accuracy:.4f} "
+        f"val_acc: {best.val_accuracy:.4f} "
         f"fitness: {best.fitness:.4f} "
         f"cost_bits: {best.estimated_model_bits} "
         f"genotype: {best.genotype.to_chromosome()}\n"
@@ -237,9 +213,11 @@ def parse_args() -> dict:
     parser = argparse.ArgumentParser(description="Evolutionary search for a quantized MLP classifier.")
     parser.add_argument("--dataset", dest="dataset_id", type=int)
     parser.add_argument("--seed", dest="random_seed", type=int, required=True, help="Random seed for reproducibility")
+    parser.add_argument("--split-seed", dest="split_seed", type=int)
     parser.add_argument("--log-file", dest="log_file", type=str, required=True, help="Path to save the run logs")
     parser.add_argument("--quant-mode", dest="quant_mode", type=str, choices=["fp32", "mixed", "binary"], required=True)
     parser.add_argument("--epochs", type=int)
+    parser.add_argument("--device", type=str, choices=["cpu", "cuda"])
     parser.add_argument("--population-size", dest="population_size", type=int)
     parser.add_argument("--generations", type=int)
     parser.add_argument("--elite-count", dest="elite_count", type=int)
@@ -252,6 +230,7 @@ def parse_args() -> dict:
 
 def main() -> None:
     config = override_config(SearchConfig(), parse_args())
+    print(f"Using device : {config.device}")
     best, history = evolve(config)
     history.sort(key=lambda item: item.fitness, reverse=True)
 
@@ -269,6 +248,6 @@ def main() -> None:
     print("\nTop candidates")
     for rank, item in enumerate(history[: config.report_top_k], start=1):
         print(
-            f"{rank}. fitness={item.fitness:.4f}, test_acc={item.test_accuracy:.4f}, "
+            f"{rank}. fitness={item.fitness:.4f}, val_acc={item.val_accuracy:.4f}, "
             f"genotype={item.genotype.to_chromosome()}"
         )

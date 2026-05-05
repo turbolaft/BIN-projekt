@@ -17,7 +17,7 @@ class EvaluatedIndividual:
     genotype: Genotype
     fitness: float
     val_accuracy: float
-    test_accuracy: float
+    test_accuracy: float | None
     estimated_model_bits: int
     estimated_compute_cost: int
     training_result: TrainingResult
@@ -28,6 +28,7 @@ def evaluate_genotype(
     dataset: DatasetBundle,
     config: SearchConfig,
     hidden_quantization_override: list[str | int] | None = None,
+    evaluate_test_accuracy: bool = False,
 ) -> EvaluatedIndividual:
     _seed_for_genotype(config.random_seed, genotype, hidden_quantization_override)
     model = QuantizedMLP(
@@ -46,7 +47,9 @@ def evaluate_genotype(
         weight_decay=config.weight_decay,
         device=config.device,
     )
-    test_accuracy = evaluate_accuracy(model, dataset.test_loader, config.device)
+    test_accuracy = None
+    if evaluate_test_accuracy:
+        test_accuracy = evaluate_accuracy(model, dataset.test_loader, config.device)
 
     model_bits, compute_cost = estimate_efficiency(
         genotype,
@@ -71,6 +74,21 @@ def evaluate_genotype(
         estimated_model_bits=model_bits,
         estimated_compute_cost=compute_cost,
         training_result=training_result,
+    )
+
+
+def evaluate_final_genotype(
+    genotype: Genotype,
+    dataset: DatasetBundle,
+    config: SearchConfig,
+    hidden_quantization_override: list[str | int] | None = None,
+) -> EvaluatedIndividual:
+    return evaluate_genotype(
+        genotype,
+        dataset,
+        config,
+        hidden_quantization_override=hidden_quantization_override,
+        evaluate_test_accuracy=True,
     )
 
 
